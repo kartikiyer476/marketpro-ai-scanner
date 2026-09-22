@@ -1,30 +1,26 @@
 import yfinance as yf
 import pandas as pd
 
-def get_ohlcv(symbol: str, interval: str = "15m", period: str = "5d") -> pd.DataFrame:
+def get_market_pair_data(symbol: str):
     """
-    Yahoo Finance se candle data fetch karta hai aur structure clean karta hai.
+    LTF (15m) aur HTF (1h) dono fetch karta hai Higher Timeframe Confluence ke liye.
     """
     try:
-        df = yf.download(
-            tickers=symbol,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True
-        )
-        
-        if df.empty or len(df) < 10:
-            print(f"[WARN] Data available nahi hai for: {symbol}")
-            return pd.DataFrame()
+        # 15m data for execution
+        df_ltf = yf.download(symbol, period="5d", interval="15m", progress=False, auto_adjust=True)
+        # 1h data for HTF EMA 50 Bias
+        df_htf = yf.download(symbol, period="1mo", interval="1h", progress=False, auto_adjust=True)
 
-        # yfinance multi-index columns clean karna
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        if df_ltf.empty or df_htf.empty:
+            return pd.DataFrame(), pd.DataFrame()
 
-        df = df.dropna()
-        return df
+        if isinstance(df_ltf.columns, pd.MultiIndex):
+            df_ltf.columns = df_ltf.columns.get_level_values(0)
+        if isinstance(df_htf.columns, pd.MultiIndex):
+            df_htf.columns = df_htf.columns.get_level_values(0)
+
+        return df_ltf.dropna(), df_htf.dropna()
 
     except Exception as e:
-        print(f"[ERROR] Data fetch error ({symbol}): {e}")
-        return pd.DataFrame()
+        print(f"[ERROR] Data fetch failed for {symbol}: {e}")
+        return pd.DataFrame(), pd.DataFrame()
