@@ -1,82 +1,114 @@
-import os
+
 import time
 import requests
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+from market_data import get_candles
+from marketpro import score
 
 SYMBOLS = [
     "BTCUSDT",
-    "ETHUSDT",
+    "ETHUSDT"
 ]
 
-INTERVAL_SECONDS = 60
+TIMEFRAME = "15m"
+CHECK_INTERVAL = 60
+
+last_alerts = {}
 
 
 def send_telegram(message):
-    if not TELEGRAM_BOT_TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is missing.")
+    import os
 
-    if not TELEGRAM_CHAT_ID:
-        raise RuntimeError("TELEGRAM_CHAT_ID is missing.")
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat = os.getenv("TELEGRAM_CHAT_ID")
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
 
-    response = requests.post(
+    requests.post(
         url,
         json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
+            "chat_id": chat,
+            "text": message
         },
-        timeout=20,
+        timeout=20
     )
 
-    response.raise_for_status()
+
+def should_alert(symbol, result):
+    key = f"{symbol}_{result['signal']}_{result['bull']}_{result['bear']}"
+
+    if last_alerts.get(symbol) == key:
+        return False
+
+    last_alerts[symbol] = key
+    return True
 
 
-def get_binance_price(symbol):
-    url = "https://api.binance.com/api/v3/ticker/price"
+def build_message(symbol, result, price):
 
-    response = requests.get(
-        url,
-        params={"symbol": symbol},
-        timeout=20,
+    return (
+        f"🚨 MARKETPRO AI\n\n"
+        f"Symbol: {symbol}\n"
+        f"TF: {TIMEFRAME}\n\n"
+        f"Signal: {result['signal']}\n"
+        f"Bull Score: {result['bull']}/10\n"
+        f"Bear Score: {result['bear']}/10\n\n"
+        f"Price: {price}\n"
+        f"Structure: {result['structure']}\n\n"
+        f"Fib 0.5: {result['fib']['50']:.2f}\n"
+        f"Fib 0.618: {result['fib']['618']:.2f}"
     )
 
-    response.raise_for_status()
 
-    data = response.json()
+def process_symbol(symbol):
 
-    return float(data["price"])
+    candles = get_candles(symbol, TIMEFRAME, 200)
 
+    result = score(candles)
 
-def scan_market():
-    print("MarketPro AI scanner started.")
+    if result is None:
+        return
 
-    for symbol in SYMBOLS:
-        try:
-            price = get_binance_price(symbol)
+    price = candles[-1]["close"]
 
-            print(f"{symbol}: {price}")
+    print(symbol, result)
 
-        except Exception as error:
-            print(f"{symbol} error: {error}")
+    alert = False
+
+    if result["signal"] in ["LONG", "SHORT"]:
+        alert = True
+
+    elif result["bull"] >= 7:
+        alert = True
+
+    elif result["bear"] >= 7:
+        alert = True
+
+    elif result["bull"] >= 6:
+        alert = True
+
+    elif result["bear"] >= 6:
+        alert = True
+
+    if alert and should_alert(symbol, result):
+        send_telegram(build_message(symbol, result, price))
 
 
 def main():
-    print("================================")
-    print("MarketPro AI Scanner")
-    print("BTC + ETH")
-    print("================================")
+
+    print("MarketPro AI Scanner Started")
 
     while True:
-        try:
-            scan_market()
 
-        except Exception as error:
-            print(f"Scanner error: {error}")
+        for symbol in SYMBOLS:
 
-        time.sleep(INTERVAL_SECONDS)
+            try:
+                process_symbol(symbol)
+
+            except Exception as error:
+                print(symbol, error)
+
+        time.sleep(CHECK_INTERVAL)
 
 
 if __name__ == "__main__":
