@@ -3,7 +3,7 @@ name: MarketPro Scanner Engine
 on:
   schedule:
     # 24/7 Har 15 minute par run hoga
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
