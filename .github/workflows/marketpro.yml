@@ -1,4 +1,4 @@
-name: MarketPro AI Scanner
+name: MarketPro Scanner
 
 on:
   schedule:
