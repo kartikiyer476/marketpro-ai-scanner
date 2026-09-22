@@ -2,21 +2,20 @@ from market_data import get_ohlcv
 from scanner import run_strategy_scan
 from bot import send_telegram_alert
 
-# Watchlist: Yahan aap apne stocks ya indices add kar sakte hain
+# Crypto & Commodity Watchlist
 WATCHLIST = [
-    "^NSEI",         # Nifty 50
-    "^NSEBANK",      # Bank Nifty
-    "RELIANCE.NS",
-    "TCS.NS",
-    "HDFCBANK.NS",
-    "ICICIBANK.NS"
+    "BTC-USD",     # Bitcoin
+    "ETH-USD",     # Ethereum
+    "GC=F",        # Gold Futures (XAUUSD)
+    "SOL-USD",     # Solana (Optional)
+    "BNB-USD"      # BNB (Optional)
 ]
 
-TIMEFRAME = "15m"
+TIMEFRAME = "15m"   # Scalping/Swing ke hisab se 15m ya 1h rakh sakte hain
 DATA_PERIOD = "5d"
 
 def main():
-    print(f"[INFO] MarketPro scan started for {len(WATCHLIST)} symbols...")
+    print(f"[INFO] Crypto & Gold scan started for {len(WATCHLIST)} symbols...")
     triggered_count = 0
 
     for symbol in WATCHLIST:
