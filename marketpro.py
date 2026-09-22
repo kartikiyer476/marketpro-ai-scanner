@@ -1,35 +1,33 @@
-from market_data import get_ohlcv
-from scanner import run_strategy_scan
+from market_data import get_market_pair_data
+from scanner import calculate_smc_confluence
 from bot import send_telegram_alert
 
-# Crypto & Commodity Watchlist
 WATCHLIST = [
     "BTC-USD",     # Bitcoin
     "ETH-USD",     # Ethereum
-    "GC=F",        # Gold Futures (XAUUSD)
-    "SOL-USD",     # Solana (Optional)
-    "BNB-USD"      # BNB (Optional)
+    "SOL-USD",     # Solana
+    "BNB-USD",     # BNB
+    "GC=F"         # Gold (XAUUSD)
 ]
 
-TIMEFRAME = "15m"   # Scalping/Swing ke hisab se 15m ya 1h rakh sakte hain
-DATA_PERIOD = "5d"
-
 def main():
-    print(f"[INFO] Crypto & Gold scan started for {len(WATCHLIST)} symbols...")
-    triggered_count = 0
+    print(f"[INFO] Running MarketPro SMC Pro Scan for {len(WATCHLIST)} assets...")
+    alerts_triggered = 0
 
     for symbol in WATCHLIST:
-        df = get_ohlcv(symbol=symbol, interval=TIMEFRAME, period=DATA_PERIOD)
-        if df.empty:
+        df_ltf, df_htf = get_market_pair_data(symbol)
+        if df_ltf.empty or df_htf.empty:
             continue
 
-        result = run_strategy_scan(df, symbol)
+        result = calculate_smc_confluence(df_ltf, df_htf, symbol)
         if result.get("signal"):
-            print(f"[ALERT] Trigger matched for {symbol} ({result['type']})")
+            print(f"[ALERT] {result['type']} confirmed for {symbol}!")
             send_telegram_alert(result["message"])
-            triggered_count += 1
+            alerts_triggered += 1
+        else:
+            print(f"[DEBUG] {symbol}: No Signal ({result.get('score')})")
 
-    print(f"[INFO] Scan complete. Total alerts sent: {triggered_count}")
+    print(f"[INFO] Scan complete. Total alerts sent: {alerts_triggered}")
 
 if __name__ == "__main__":
     main()
