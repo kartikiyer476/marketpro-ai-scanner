@@ -1,24 +1,41 @@
-name: MarketPro Scanner
+name: MarketPro Scanner Engine
 
 on:
+  # Schedule: Monday to Friday (Indian Market Hours)
   schedule:
-    - cron: "*/5 * * * *"
+    # 03:45 UTC = 9:15 AM IST (Market Open)
+    # 10:00 UTC = 3:30 PM IST (Market Close)
+    # Har 15 minute par scan chalega
+    - cron: '*/15 3-10 * * 1-5'
+  
+  # Manual trigger button (Testing ke liye)
   workflow_dispatch:
 
 jobs:
-  scan:
+  run-scanner:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # Step 1: Repo code runner me checkout karna
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      # Step 2: Python environment setup karna
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.11'
+          cache: 'pip'
 
-      - run: pip install -r requirements.txt
+      # Step 3: Required packages install karna
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - run: python scanner.py
+      # Step 4: Scanner script run karna with Telegram Secrets
+      - name: Execute MarketPro Scanner
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python marketpro.py
