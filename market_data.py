@@ -1,41 +1,30 @@
-import requests
+import yfinance as yf
+import pandas as pd
 
+def get_ohlcv(symbol: str, interval: str = "15m", period: str = "5d") -> pd.DataFrame:
+    """
+    Yahoo Finance se candle data fetch karta hai aur structure clean karta hai.
+    """
+    try:
+        df = yf.download(
+            tickers=symbol,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=True
+        )
+        
+        if df.empty or len(df) < 10:
+            print(f"[WARN] Data available nahi hai for: {symbol}")
+            return pd.DataFrame()
 
-BINANCE_URL = "https://api.binance.com/api/v3/klines"
+        # yfinance multi-index columns clean karna
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
 
+        df = df.dropna()
+        return df
 
-def get_candles(symbol="BTCUSDT", interval="15m", limit=100):
-    response = requests.get(
-        BINANCE_URL,
-        params={
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit,
-        },
-        timeout=20,
-    )
-
-    response.raise_for_status()
-
-    raw = response.json()
-
-    candles = []
-
-    for item in raw:
-        candles.append({
-            "time": int(item[0]),
-            "open": float(item[1]),
-            "high": float(item[2]),
-            "low": float(item[3]),
-            "close": float(item[4]),
-            "volume": float(item[5]),
-        })
-
-    return candles
-
-
-if __name__ == "__main__":
-    candles = get_candles("BTCUSDT", "15m", 10)
-
-    for candle in candles:
-        print(candle)
+    except Exception as e:
+        print(f"[ERROR] Data fetch error ({symbol}): {e}")
+        return pd.DataFrame()
