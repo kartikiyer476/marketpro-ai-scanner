@@ -113,3 +113,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+if __name__ == "__main__":
+    scan_market()
+    print("Scan completed.")
+
