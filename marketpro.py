@@ -2,21 +2,20 @@ from market_data import get_market_pair_data
 from scanner import calculate_smc_confluence
 from bot import send_telegram_alert
 
+# Sirf BTC aur ETH ki scanning hogi
 WATCHLIST = [
     "BTC-USD",     # Bitcoin
-    "ETH-USD",     # Ethereum
-    "SOL-USD",     # Solana
-    "BNB-USD",     # BNB
-    "GC=F"         # Gold (XAUUSD)
+    "ETH-USD"      # Ethereum
 ]
 
 def main():
-    print(f"[INFO] Running MarketPro SMC Pro Scan for {len(WATCHLIST)} assets...")
+    print(f"[INFO] Running MarketPro SMC Scan for {len(WATCHLIST)} assets (BTC & ETH)...")
     alerts_triggered = 0
 
     for symbol in WATCHLIST:
         df_ltf, df_htf = get_market_pair_data(symbol)
         if df_ltf.empty or df_htf.empty:
+            print(f"[WARNING] Data missing for {symbol}")
             continue
 
         result = calculate_smc_confluence(df_ltf, df_htf, symbol)
