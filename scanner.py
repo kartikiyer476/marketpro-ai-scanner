@@ -4,308 +4,314 @@ import pandas_ta as ta
 
 def calculate_smc_confluence(df_ltf: pd.DataFrame, df_htf: pd.DataFrame, symbol: str) -> dict:
     """
-    MarketPro AI - SMC Confluence PRO + Auto Fib
-    Pine Script v6 Exact Reconstitution (15m Execution + 1h HTF Bias)
+    MarketPro AI - 3-Tier Proprietary Smart Money Engine
+    Tiers:
+      • Score 5-6: Setup Alert (Early Radar)
+      • Score 7: Setup Confirmed (High Probability)
+      • Score 8-10: Strong Institutional Confirmed (Full Entry / SL / TP1 / TP2)
     """
-    if df_ltf.empty or len(df_ltf) < 60:
-        return {"signal": False, "score": "Data Insufficient (< 60 bars)"}
+    if df_ltf.empty or len(df_ltf) < 45:
+        return {"signal": False, "score": "Data Insufficient"}
 
     df = df_ltf.copy()
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 1. PINE SCRIPT INPUTS & PARAMETERS
-    # ─────────────────────────────────────────────────────────────────────────
+    # 1. Proprietary Model Constants
     pivot_len = 5
     atr_len = 14
-    disp_atr = 1.2           # dispATR = 1.2
-    disp_body_pct = 0.60     # dispBodyPct = 0.60
     vol_len = 20
-    vol_mult = 1.4           # volMult = 1.4
-    fvg_min_atr = 0.10       # fvgMinATR = 0.10
-    sweep_max_bars = 30      # sweepMaxBars = 30
-    min_score = 7            # Pine Script default: minScore = 7
-    strict_sweep = True      # strictSweep = true
-    strict_mss = True        # strictMSS = true
-    strict_disp = True       # strictDisp = true
-    cooldown_bars = 10       # cooldownBars = 10
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 2. CORE VALUES & INDICATORS
-    # ─────────────────────────────────────────────────────────────────────────
+    # 2. Indicators & Range Metrics
     df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=atr_len)
     df['VolMA'] = df['Volume'].rolling(window=vol_len).mean()
-    df['HighVolume'] = df['Volume'] > (df['VolMA'] * vol_mult)
+    df['HighVolume'] = df['Volume'] > (df['VolMA'] * 1.25)
 
     candle_range = df['High'] - df['Low']
     body = (df['Close'] - df['Open']).abs()
     body_pct = np.where(candle_range > 0, body / candle_range, 0.0)
 
-    # Bull / Bear Displacement
-    df['BullDisp'] = (df['Close'] > df['Open']) & (candle_range >= df['ATR'] * disp_atr) & (body_pct >= disp_body_pct)
-    df['BearDisp'] = (df['Close'] < df['Open']) & (candle_range >= df['ATR'] * disp_atr) & (body_pct >= disp_body_pct)
+    # Proprietary Displacement Footprint
+    df['BullDisp'] = (df['Close'] > df['Open']) & (candle_range >= df['ATR'] * 1.1) & (body_pct >= 0.52)
+    df['BearDisp'] = (df['Close'] < df['Open']) & (candle_range >= df['ATR'] * 1.1) & (body_pct >= 0.52)
 
-    # VWAP
+    # Algorithmic Fair Value
     df['VWAP'] = ta.vwap(df['High'], df['Low'], df['Close'], df['Volume'])
     if df['VWAP'].isna().all():
         hlc3 = (df['High'] + df['Low'] + df['Close']) / 3
         df['VWAP'] = (hlc3 * df['Volume']).cumsum() / df['Volume'].cumsum()
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 3. SWINGS, STRUCTURE, BOS/MSS & LIQUIDITY SWEEPS
-    # ─────────────────────────────────────────────────────────────────────────
+    # 3. Market Structure & Liquidity Mapping
     highs = df['High'].values
     lows = df['Low'].values
     closes = df['Close'].values
     n = len(df)
 
     last_swing_high = None
-    prev_swing_high = None
     last_swing_low = None
-    prev_swing_low = None
     last_high_bar = None
     last_low_bar = None
-
-    structure_bias = 0  # 1 = Bullish, -1 = Bearish
+    structure_bias = 0
 
     bull_break_bars = []
     bear_break_bars = []
     bull_sweep_bars = []
     bear_sweep_bars = []
-    signal_history = []  # For cooldown tracking
 
     for i in range(pivot_len, n - pivot_len):
-        # ta.pivothigh(high, pivotLen, pivotLen)
-        is_ph = True
-        for j in range(1, pivot_len + 1):
-            if highs[i - pivot_len] <= highs[i - pivot_len - j] or highs[i - pivot_len] <= highs[i - pivot_len + j]:
-                is_ph = False
-                break
+        is_ph = all(highs[i - pivot_len] >= highs[i - pivot_len - j] and highs[i - pivot_len] >= highs[i - pivot_len + j] for j in range(1, pivot_len + 1))
         if is_ph:
-            ph = highs[i - pivot_len]
-            prev_swing_high = last_swing_high
-            last_swing_high = ph
+            last_swing_high = highs[i - pivot_len]
             last_high_bar = i - pivot_len
-            if prev_swing_high is not None:
-                if ph > prev_swing_high:
-                    structure_bias = 1
-                elif ph < prev_swing_high:
-                    structure_bias = -1
 
-        # ta.pivotlow(low, pivotLen, pivotLen)
-        is_pl = True
-        for j in range(1, pivot_len + 1):
-            if lows[i - pivot_len] >= lows[i - pivot_len - j] or lows[i - pivot_len] >= lows[i - pivot_len + j]:
-                is_pl = False
-                break
+        is_pl = all(lows[i - pivot_len] <= lows[i - pivot_len - j] and lows[i - pivot_len] <= lows[i - pivot_len + j] for j in range(1, pivot_len + 1))
         if is_pl:
-            pl = lows[i - pivot_len]
-            prev_swing_low = last_swing_low
-            last_swing_low = pl
+            last_swing_low = lows[i - pivot_len]
             last_low_bar = i - pivot_len
-            if prev_swing_low is not None:
-                if pl > prev_swing_low:
-                    structure_bias = 1
-                elif pl < prev_swing_low:
-                    structure_bias = -1
 
-        # BOS / MSS Breakouts
         close_cur = closes[i]
         close_prev = closes[i - 1]
 
-        bull_break = (last_swing_high is not None) and (close_cur > last_swing_high) and (close_prev <= last_swing_high)
-        bear_break = (last_swing_low is not None) and (close_cur < last_swing_low) and (close_prev >= last_swing_low)
-
-        if bull_break:
+        # Structural Shifts
+        if last_swing_high and close_cur > last_swing_high and close_prev <= last_swing_high:
             structure_bias = 1
             bull_break_bars.append(i)
 
-        if bear_break:
+        if last_swing_low and close_cur < last_swing_low and close_prev >= last_swing_low:
             structure_bias = -1
             bear_break_bars.append(i)
 
-        # Liquidity Sweeps
-        high_valid = (last_swing_high is not None) and (last_high_bar is not None) and (i - last_high_bar <= sweep_max_bars)
-        low_valid = (last_swing_low is not None) and (last_low_bar is not None) and (i - last_low_bar <= sweep_max_bars)
-
-        # buySideSweep = high > lastSwingHigh and close < lastSwingHigh
-        if high_valid and highs[i] > last_swing_high and close_cur < last_swing_high:
+        # Liquidity Traps
+        if last_swing_high and highs[i] > last_swing_high and close_cur < last_swing_high:
             bear_sweep_bars.append(i)
 
-        # sellSideSweep = low < lastSwingLow and close > lastSwingLow
-        if low_valid and lows[i] < last_swing_low and close_cur > last_swing_low:
+        if last_swing_low and lows[i] < last_swing_low and close_cur > last_swing_low:
             bull_sweep_bars.append(i)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 4. FVG & RECENT EVENT MEMORY
-    # ─────────────────────────────────────────────────────────────────────────
+    # 4. Multi-Confluence Engine
     current_idx = n - 1
-
-    bull_fvg_series = (df['Low'] > df['High'].shift(2)) & ((df['Low'] - df['High'].shift(2)) >= df['ATR'] * fvg_min_atr)
-    bear_fvg_series = (df['High'] < df['Low'].shift(2)) & ((df['Low'].shift(2) - df['High']) >= df['ATR'] * fvg_min_atr)
-
-    recent_bull_sweep = any(current_idx - b <= 5 for b in bull_sweep_bars)
-    recent_bear_sweep = any(current_idx - b <= 5 for b in bear_sweep_bars)
-
-    recent_bull_break = any(current_idx - b <= 5 for b in bull_break_bars)
-    recent_bear_break = any(current_idx - b <= 5 for b in bear_break_bars)
-
-    recent_bull_disp = df['BullDisp'].iloc[-3:].any()
-    recent_bear_disp = df['BearDisp'].iloc[-3:].any()
-
-    recent_high_volume = df['HighVolume'].iloc[-3:].any()
-    recent_bull_fvg = bull_fvg_series.iloc[-8:].any()
-    recent_bear_fvg = bear_fvg_series.iloc[-8:].any()
+    bull_fvg = ((df['Low'] > df['High'].shift(2)) & ((df['Low'] - df['High'].shift(2)) >= df['ATR'] * 0.08)).iloc[-6:].any()
+    bear_fvg = ((df['High'] < df['Low'].shift(2)) & ((df['Low'].shift(2) - df['High']) >= df['ATR'] * 0.08)).iloc[-6:].any()
 
     latest_close = df['Close'].iloc[-1]
     latest_vwap = df['VWAP'].iloc[-1] if not pd.isna(df['VWAP'].iloc[-1]) else latest_close
-    latest_atr = df['ATR'].iloc[-1] if not pd.isna(df['ATR'].iloc[-1]) else 0
+    latest_atr = df['ATR'].iloc[-1] if not pd.isna(df['ATR'].iloc[-1]) else (latest_close * 0.01)
 
-    bull_vwap = latest_close > latest_vwap
-    bear_vwap = latest_close < latest_vwap
-
-    # Higher Timeframe (1h 50 EMA)
-    htf_bull = True
-    htf_bear = True
+    # Macro Alignment (HTF)
+    htf_bull, htf_bear = True, True
     if not df_htf.empty and len(df_htf) >= 20:
         df_htf['EMA50'] = ta.ema(df_htf['Close'], length=min(50, len(df_htf) - 1))
-        htf_bull = df_htf['Close'].iloc[-1] > df_htf['EMA50'].iloc[-1]
-        htf_bear = df_htf['Close'].iloc[-1] < df_htf['EMA50'].iloc[-1]
+        htf_bull = df_htf['Close'].iloc[-1] >= df_htf['EMA50'].iloc[-1]
+        htf_bear = df_htf['Close'].iloc[-1] <= df_htf['EMA50'].iloc[-1]
 
-    # Active Session (Crypto trades 24/7)
-    active_session = True
+    # Secret Black-Box Explanations (Hinglish Narrative)
+    bull_reasons = []
+    bear_reasons = []
 
-    # S/R Proximity
-    near_support = (last_swing_low is not None) and (abs(latest_close - last_swing_low) <= latest_atr * 1.5)
-    near_resistance = (last_swing_high is not None) and (abs(latest_close - last_swing_high) <= latest_atr * 1.5)
+    if structure_bias == 1:
+        bull_reasons.append("Trend Alignment: Buyers continuous higher levels control kar rahe hain.")
+    elif structure_bias == -1:
+        bear_reasons.append("Trend Alignment: Sellers lower lows bana kar market ko push kar rahe hain.")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 5. CONFLUENCE SCORE (MAX 10)
-    # ─────────────────────────────────────────────────────────────────────────
-    bull_score = 0
-    bear_score = 0
+    if any(current_idx - b <= 8 for b in bull_sweep_bars):
+        bull_reasons.append("Liquidity Trap: Retailers ke sell stop-loss hunt ho chuke hain (Smart Money Buy Zone).")
+    if any(current_idx - b <= 8 for b in bear_sweep_bars):
+        bear_reasons.append("Liquidity Trap: Retailers ke buy breakout traps execute ho chuke hain (Smart Money Sell Zone).")
 
-    bull_score += 1 if structure_bias == 1 else 0
-    bear_score += 1 if structure_bias == -1 else 0
+    if any(current_idx - b <= 8 for b in bull_break_bars):
+        bull_reasons.append("Orderflow Shift: Market structure ne buying side reversal confirm kiya hai.")
+    if any(current_idx - b <= 8 for b in bear_break_bars):
+        bear_reasons.append("Orderflow Shift: Market structure ne selling side breakdown confirm kiya hai.")
 
-    bull_score += 1 if recent_bull_sweep else 0
-    bear_score += 1 if recent_bear_sweep else 0
+    if df['BullDisp'].iloc[-4:].any():
+        bull_reasons.append("Aggressive Volume: Big institutions ki aggressive buying candle detect hui hai.")
+    if df['BearDisp'].iloc[-4:].any():
+        bear_reasons.append("Aggressive Volume: Institutional heavy sell-off candle print hui hai.")
 
-    bull_score += 1 if recent_bull_break else 0
-    bear_score += 1 if recent_bear_break else 0
+    if df['HighVolume'].iloc[-4:].any():
+        bull_reasons.append("Volume Footprint: Average se kafi zyada trading activity observe hui hai.")
+        bear_reasons.append("Volume Footprint: Average se kafi zyada trading activity observe hui hai.")
 
-    bull_score += 1 if recent_bull_disp else 0
-    bear_score += 1 if recent_bear_disp else 0
+    if bull_fvg:
+        bull_reasons.append("Price Imbalance: Price ek sharp green gap chhod kar upar nikla hai (Magnet Level).")
+    if bear_fvg:
+        bear_reasons.append("Price Imbalance: Downside move par sharp imbalance zone create hua hai.")
 
-    bull_score += 1 if recent_high_volume else 0
-    bear_score += 1 if recent_high_volume else 0
+    if latest_close > latest_vwap:
+        bull_reasons.append("Fair Value: Price intraday institutional average ke upar sustain kar raha hai.")
+    else:
+        bear_reasons.append("Fair Value: Price intraday institutional average ke niche reject ho raha hai.")
 
-    bull_score += 1 if recent_bull_fvg else 0
-    bear_score += 1 if recent_bear_fvg else 0
+    if htf_bull:
+        bull_reasons.append("Macro Trend: Higher timeframe par primary trend bullish chal raha hai.")
+    if htf_bear:
+        bear_reasons.append("Macro Trend: Higher timeframe par primary trend bearish chal raha hai.")
 
-    bull_score += 1 if bull_vwap else 0
-    bear_score += 1 if bear_vwap else 0
+    bull_reasons.append("Market Liquidity: Active session order execution active hai.")
+    bear_reasons.append("Market Liquidity: Active session order execution active hai.")
 
-    bull_score += 1 if htf_bull else 0
-    bear_score += 1 if htf_bear else 0
+    if last_swing_low and abs(latest_close - last_swing_low) <= latest_atr * 1.5:
+        bull_reasons.append("Major Level: Strong institutional support base par bounce ban raha hai.")
+    if last_swing_high and abs(latest_close - last_swing_high) <= latest_atr * 1.5:
+        bear_reasons.append("Major Level: Major supply resistance zone par rejection dekha gaya hai.")
 
-    bull_score += 1 if active_session else 0
-    bear_score += 1 if active_session else 0
+    bull_score = len(bull_reasons)
+    bear_score = len(bear_reasons)
 
-    bull_score += 1 if near_support else 0
-    bear_score += 1 if near_resistance else 0
+    # 5. Anti-Spam: Fresh Action Trigger (Pichli 3 candles me koi naya catalyst hona chahiye)
+    fresh_catalyst = (
+        any(current_idx - b <= 3 for b in bull_break_bars + bear_break_bars + bull_sweep_bars + bear_sweep_bars) or
+        df['BullDisp'].iloc[-3:].any() or df['BearDisp'].iloc[-3:].any()
+    )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 6. STRICT CONFIRMATION FILTERS & COOLDOWN
-    # ─────────────────────────────────────────────────────────────────────────
-    bull_required = (not strict_sweep or recent_bull_sweep) and \
-                    (not strict_mss or recent_bull_break) and \
-                    (not strict_disp or recent_bull_disp) and \
-                    htf_bull
+    if not fresh_catalyst:
+        return {"signal": False, "score": f"BULL: {bull_score}/10 | BEAR: {bear_score}/10 (No Fresh Catalyst)"}
 
-    bear_required = (not strict_sweep or recent_bear_sweep) and \
-                    (not strict_mss or recent_bear_break) and \
-                    (not strict_disp or recent_bear_disp) and \
-                    htf_bear
+    # 6. Auto Fib / Trade Planning Math (Hidden Algorithmic Logic)
+    ote_str = "Market Price"
+    sl_price = latest_close - (latest_atr * 1.5)
+    tp1 = latest_close + (latest_atr * 2.5)
+    tp2 = latest_close + (latest_atr * 4.5)
 
-    raw_long = (bull_score >= min_score) and bull_required
-    raw_short = (bear_score >= min_score) and bear_required
-
-    # Signal confirmation
-    long_signal = raw_long and not raw_short
-    short_signal = raw_short and not raw_long
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # 7. AUTO FIBONACCI / OPTIMAL TRADE ENTRY (OTE: 0.618 - 0.705 - 0.786)
-    # ─────────────────────────────────────────────────────────────────────────
-    fib_ote_info = "N/A"
-    invalidation_level = "Structural Pivot"
-
-    if last_swing_high and last_swing_low and last_high_bar and last_low_bar:
-        fib_dist = abs(last_swing_high - last_swing_low)
-        if last_high_bar > last_low_bar:
-            # Bullish Impulse (Low -> High)
-            fib_618 = last_swing_high - fib_dist * 0.618
-            fib_705 = last_swing_high - fib_dist * 0.705
-            fib_786 = last_swing_high - fib_dist * 0.786
-            fib_ote_info = f"${fib_786:,.2f} - ${fib_618:,.2f} (Sweet Spot:${fib_705:,.2f})"
-            invalidation_level = f"${last_swing_low:,.2f}"
-        else:
-            # Bearish Impulse (High -> Low)
-            fib_618 = last_swing_low + fib_dist * 0.618
-            fib_705 = last_swing_low + fib_dist * 0.705
-            fib_786 = last_swing_low + fib_dist * 0.786
-            fib_ote_info = f"${fib_618:,.2f} - ${fib_786:,.2f} (Sweet Spot:${fib_705:,.2f})"
-            invalidation_level = f"${last_swing_high:,.2f}"
+    if last_swing_high and last_swing_low:
+        dist = abs(last_swing_high - last_swing_low)
+        if last_high_bar and last_low_bar and last_high_bar > last_low_bar:
+            f1, f2 = last_swing_high - dist * 0.618, last_swing_high - dist * 0.786
+            ote_str = f"${min(f1, f2):,.2f} -${max(f1, f2):,.2f}"
+            sl_price = min(last_swing_low, latest_close - latest_atr * 1.2)
+            risk = abs(latest_close - sl_price)
+            tp1 = latest_close + (risk * 1.8)
+            tp2 = latest_close + (risk * 3.2)
+        elif last_high_bar and last_low_bar:
+            f1, f2 = last_swing_low + dist * 0.618, last_swing_low + dist * 0.786
+            ote_str = f"${min(f1, f2):,.2f} -${max(f1, f2):,.2f}"
+            sl_price = max(last_swing_high, latest_close + latest_atr * 1.2)
+            risk = abs(sl_price - latest_close)
+            tp1 = latest_close - (risk * 1.8)
+            tp2 = latest_close - (risk * 3.2)
 
     clean_ticker = symbol.replace("-USD", "/USDT").replace("=F", " Gold Spot")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 8. INSTITUTIONAL INVESTOR ALERT DELIVERY
+    # 7. TIERED NOTIFICATION ENGINE (BULLISH)
     # ─────────────────────────────────────────────────────────────────────────
-    if long_signal:
-        msg = (
-            f"⚡ *MARKETPRO AI | SMC CONFLUENCE PRO ALERT*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 *Asset:* `{clean_ticker}` (15m TF)\n"
-            f"🎯 *Signal:* *LONG CONFIRMED* 🟢\n"
-            f"💵 *Execution Price:* `${latest_close:,.2f}`\n"
-            f"📊 *Confluence Score:* `{bull_score}/10` (Requirement $\\ge$ {min_score})\n\n"
-            f"🔍 *Strict Confluence Checklist:*\n"
-            f"  • *Liquidity:* SSL Swept (Retail Sell Stops Hunted) ✅\n"
-            f"  • *Structure:* Bullish MSS/BOS Confirmed ✅\n"
-            f"  • *Displacement:* Institutional Impulse Candle ✅\n"
-            f"  • *HTF Bias:* Bullish Alignment (Above 1H 50 EMA) ✅\n"
-            f"  • *Fair Value Gap:* {'Bullish FVG Active ✅' if recent_bull_fvg else 'None'}\n"
-            f"  • *Session VWAP:* Price Above VWAP ✅\n\n"
-            f"📐 *Auto Fib / Institutional Entry Zone:*\n"
-            f"  • *OTE Retest (0.618 - 0.786):* `{fib_ote_info}`\n"
-            f"  • *Structural Invalidation (SL):* `< {invalidation_level}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 _Investor Note: High-probability accumulation complete. Best R:R entry on pullback into OTE._"
-        )
-        return {"signal": True, "type": "LONG", "message": msg}
+    if bull_score >= 5 and bull_score > bear_score:
+        reasons_text = "\n".join([f"  ▸ {r}" for r in bull_reasons[:4]])
 
-    if short_signal:
-        msg = (
-            f"⚡ *MARKETPRO AI | SMC CONFLUENCE PRO ALERT*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 *Asset:* `{clean_ticker}` (15m TF)\n"
-            f"🎯 *Signal:* *SHORT CONFIRMED* 🔴\n"
-            f"💵 *Execution Price:* `${latest_close:,.2f}`\n"
-            f"📊 *Confluence Score:* `{bear_score}/10` (Requirement $\\ge$ {min_score})\n\n"
-            f"🔍 *Strict Confluence Checklist:*\n"
-            f"  • *Liquidity:* BSL Swept (Retail Buy Stops Hunted) ✅\n"
-            f"  • *Structure:* Bearish MSS/BOS Confirmed ✅\n"
-            f"  • *Displacement:* Institutional Selling Pressure ✅\n"
-            f"  • *HTF Bias:* Bearish Alignment (Below 1H 50 EMA) ✅\n"
-            f"  • *Fair Value Gap:* {'Bearish FVG Active ✅' if recent_bear_fvg else 'None'}\n"
-            f"  • *Session VWAP:* Price Below VWAP ✅\n\n"
-            f"📐 *Auto Fib / Institutional Entry Zone:*\n"
-            f"  • *OTE Retest (0.618 - 0.786):* `{fib_ote_info}`\n"
-            f"  • *Structural Invalidation (SL):* `> {invalidation_level}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 _Investor Note: High-probability distribution complete. Target recent internal liquidity._"
-        )
-        return {"signal": True, "type": "SHORT", "message": msg}
+        # TIER 3: STRONG CONFIRMED (Score 8 - 10)
+        if bull_score >= 8:
+            msg = (
+                f"🔥 *MARKETPRO | A+ STRONG BUY SIGNAL*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💎 *Asset:* `{clean_ticker}` (15m TF)\n"
+                f"🎯 *Signal:* *HIGH CONVICTION BUY* 🟢\n"
+                f"📊 *Proprietary Score:* `{bull_score}/10` (Maximum Confluence)\n"
+                f"💵 *CMP (Current Price):* `${latest_close:,.2f}`\n\n"
+                f"🧠 *Ye Setup Kyu Bana? (Market Analysis):*\n"
+                f"{reasons_text}\n"
+                f"  ▸ Smart money accumulation complete hai aur market expansion ke liye ready ho raha hai.\n\n"
+                f"🎯 *Trade Execution Plan:*\n"
+                f"• *Entry Zone:* `${latest_close:,.2f}` (Ya Pullback: `{ote_str}`)\n"
+                f"• *Stop Loss (SL):* `${sl_price:,.2f}` (Strict Exit)\n"
+                f"• *Target 1 (TP1):* `${tp1:,.2f}` (Risk-Reward 1:1.8)\n"
+                f"• *Target 2 (TP2):* `${tp2:,.2f}` (Risk-Reward 1:3.2)\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡ _Execution Tip: Full target ke liye TP1 par 50% profit book karke SL entry par trail karein._"
+            )
+            return {"signal": True, "type": "LONG_TIER3", "message": msg}
+
+        # TIER 2: SETUP CONFIRMED (Score 7)
+        elif bull_score == 7:
+            msg = (
+                f"⚡ *MARKETPRO | SETUP CONFIRMED (BUY)*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📌 *Asset:* `{clean_ticker}` (15m TF)\n"
+                f"🎯 *Status:* *BUY SETUP CONFIRMED* 🟢\n"
+                f"📊 *Confluence Score:* `{bull_score}/10` (Strong Alignment)\n"
+                f"💵 *Price:* `${latest_close:,.2f}`\n\n"
+                f"🔍 *Logic & Reasoning:*\n"
+                f"{reasons_text}\n\n"
+                f"📐 *Key Trade Levels:*\n"
+                f"• *Watchlist Retest Zone:* `{ote_str}`\n"
+                f"• *Structural Invalidation (SL Zone):* `< ${sl_price:,.2f}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 _Advice: Setup confirm ho gaya hai. Retest aane par ya confirmation candle par entry plan karein._"
+            )
+            return {"signal": True, "type": "LONG_TIER2", "message": msg}
+
+        # TIER 1: SETUP ALERT / RADAR (Score 5 - 6)
+        elif bull_score >= 5:
+            msg = (
+                f"⚠️ *MARKETPRO | SETUP RADAR (BUY)*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👀 *Asset:* `{clean_ticker}` (15m TF)\n"
+                f"📊 *Score:* `{bull_score}/10` (Early Buildup Phase)\n"
+                f"💵 *Price:* `${latest_close:,.2f}`\n\n"
+                f"🔍 *Market Context:*\n"
+                f"Smart money trap aur early volume inflow shuru ho chuka hai. Setup abhi develop ho raha hai, chart ko watchlist par rakhein.\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⏳ _Action: Confirmation ka wait karein, hasty entry na lein._"
+            )
+            return {"signal": True, "type": "LONG_TIER1", "message": msg}
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 8. TIERED NOTIFICATION ENGINE (BEARISH)
+    # ─────────────────────────────────────────────────────────────────────────
+    if bear_score >= 5 and bear_score > bull_score:
+        reasons_text = "\n".join([f"  ▸ {r}" for r in bear_reasons[:4]])
+
+        # TIER 3: STRONG CONFIRMED (Score 8 - 10)
+        if bear_score >= 8:
+            msg = (
+                f"🔥 *MARKETPRO | A+ STRONG SELL SIGNAL*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💎 *Asset:* `{clean_ticker}` (15m TF)\n"
+                f"🎯 *Signal:* *HIGH CONVICTION SELL* 🔴\n"
+                f"📊 *Proprietary Score:* `{bear_score}/10` (Maximum Confluence)\n"
+                f"💵 *CMP (Current Price):* `${latest_close:,.2f}`\n\n"
+                f"🧠 *Ye Setup Kyu Bana? (Market Analysis):*\n"
+                f"{reasons_text}\n"
+                f"  ▸ Institutions ne buy-stops clear karke distribution complete kar liya hai, downward pressure expected.\n\n"
+                f"🎯 *Trade Execution Plan:*\n"
+                f"• *Entry Zone:* `${latest_close:,.2f}` (Ya Pullback: `{ote_str}`)\n"
+                f"• *Stop Loss (SL):* `${sl_price:,.2f}` (Strict Exit)\n"
+                f"• *Target 1 (TP1):* `${tp1:,.2f}` (Risk-Reward 1:1.8)\n"
+                f"• *Target 2 (TP2):* `${tp2:,.2f}` (Risk-Reward 1:3.2)\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡ _Execution Tip: Downside liquidity target karke TP1 aane par SL trailing shuru karein._"
+            )
+            return {"signal": True, "type": "SHORT_TIER3", "message": msg}
+
+        # TIER 2: SETUP CONFIRMED (Score 7)
+        elif bear_score == 7:
+            msg = (
+                f"⚡ *MARKETPRO | SETUP CONFIRMED (SELL)*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📌 *Asset:* `{clean_ticker}` (15m TF)\n"
+                f"🎯 *Status:* *SELL SETUP CONFIRMED* 🔴\n"
+                f"📊 *Confluence Score:* `{bear_score}/10` (Strong Alignment)\n"
+                f"💵 *Price:* `${latest_close:,.2f}`\n\n"
+                f"🔍 *Logic & Reasoning:*\n"
+                f"{reasons_text}\n\n"
+                f"📐 *Key Trade Levels:*\n"
+                f"• *Watchlist Retest Zone:* `{ote_str}`\n"
+                f"• *Structural Invalidation (SL Zone):* `> ${sl_price:,.2f}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 _Advice: Supply zone validation ho chuka hai. Pullback rejection par trade initiate karein._"
+            )
+            return {"signal": True, "type": "SHORT_TIER2", "message": msg}
+
+        # TIER 1: SETUP ALERT / RADAR (Score 5 - 6)
+        elif bear_score >= 5:
+            msg = (
+                f"⚠️ *MARKETPRO | SETUP RADAR (SELL)*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👀 *Asset:* `{clean_ticker}` (15m TF)\n"
+                f"📊 *Score:* `{bear_score}/10` (Early Buildup Phase)\n"
+                f"💵 *Price:* `${latest_close:,.2f}`\n\n"
+                f"🔍 *Market Context:*\n"
+                f"Upper resistance par smart money distribution activity notice hui hai. Breakout ya breakdown ke liye monitor karein.\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⏳ _Action: Watchlist me add karein, premature entry avoid karein._"
+            )
+            return {"signal": True, "type": "SHORT_TIER1", "message": msg}
 
     return {"signal": False, "score": f"BULL: {bull_score}/10 | BEAR: {bear_score}/10"}
